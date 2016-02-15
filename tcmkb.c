@@ -22,6 +22,10 @@ tcmkb string1 string2 savefile
 
 */
 #define ARG_NOTFOUND 0				//コマンドライン引数未発見
+#define ARG_ORIGINAL 0				//コマンドラインオプション-oの配列番号
+#define ARG_SEARCH 1				//コマンドラインオプション-fの配列番号
+#define ARG_SAVEFILE 2				//コマンドラインオプション-hの配列番号
+
 #define ERROR_NO 0					//エラーなし
 #define ERROR_ARG 1					//引数エラー
 #define ERROR_LONG 2				//文字数エラー
@@ -38,11 +42,12 @@ tcmkb string1 string2 savefile
 #define OPNAME_DEFAULT "b.html"		//デフォルトの保存ファイル名
 #define OPNAME_DEFAULT_LONG 7		//デフォルトの保存ファイル名の要素数
 
-int argchk(char* arg);				//コマンドラインオプションの識別
-void errmsg(int p);					//エラーメッセージ表示
-int srch(char* org, char* match, int *srchcount, char *boldspot);	//検索
-int BoldInsert(char* org, char* boldspot, char* result, int srchcount, int orglength);
-int Filesave(char* result, char *opname, int s_save);
+int commandline_option_input(char *argv[], int commandlineoption[], int argc);
+int arg_check(char* arg);				//コマンドラインオプションの識別
+void error_msg(int p);					//エラーメッセージ表示
+int search(char* org, char* match, int *srchcount, char *boldspot);	//検索
+int bold_insert(char* org, char* boldspot, char* result, int srchcount, int orglength);
+int file_save(char* result, char *opname, int s_save);
 void allsmall(char* text);
 
 int i; int j; int k;
@@ -52,32 +57,68 @@ int i; int j; int k;
 int main(int argc, char *argv[]){	//コマンドライン引数
 	
 	int chk = ERROR_NO;				//エラー検出用変数 0でなければエラー
-	int s_org = ARG_NOTFOUND;		//検索対象テキスト指定のオプション
-	int s_find = ARG_NOTFOUND;		//検索文字列指定のオプション
-	int s_save = ARG_NOTFOUND;		//保存先ファイルのオプション
+	int commandlineoption[3] = { ARG_NOTFOUND , ARG_NOTFOUND , ARG_NOTFOUND };
+	chk = commandline_option_input(argv, commandlineoption, argc);		//コマンドラインオプション指定位置をcommandlineoptionに格納する
+	char *org = argv[commandlineoption[ARG_ORIGINAL]+1];				//検索先文字列のポインタ変数
+	char *match = argv[commandlineoption[ARG_SEARCH]+1];				//検索文字列のポインタ変数
+	int orglength = strlen(org);										//検索対象テキストの文字数
+	int matchlength = strlen(match);									//検索文字列の文字数
+	int srchcount = 0;													//発見回数
+	int resultmax = orglength + ( orglength / matchlength ) * 7;		//検索結果に<b>を挿入した場合の最大文字数
+ 	char boldspot[orglength+2];											//発見位置保存配列のポインタ(文字の先頭と文字間と文字終端で要素数+2)
+	char result[resultmax];	
 	
-//	ループ毎に1つずつコマンドラインオプションを取得する：argchk(argv[i])
+	memset(boldspot, BOLDSPOT_FORMAT , orglength + 1);
+	memset(result, '\0', resultmax - 1);
+	
+	chk = search(org, match, &srchcount, boldspot);		//検索
+	
+//文字列を発見した場合の処理----------------
+	if(srchcount >= FOUND){
+		chk = bold_insert(org, boldspot, result, srchcount, orglength);	//resultで<b>挿入後の文を受け取る
+		if (chk == ERROR_NO){				//問題ないなら保存
+			chk = file_save(result,argv[commandlineoption[ARG_SAVEFILE]+1],commandlineoption[ARG_SAVEFILE]);
+		}
+		printf("%s\n", result);				//保存した結果を表示
+		
+//発見していない場合の処理------------------
+	} else {
+		printf("文字列\"%s\"は見つかりませんでした。\n", match);
+	}
+	error_msg(chk);
+	return 0;
+}
+//main関数ここまで----------------------------------------------------------------
+//------------------------------------------------------------------------------
+
+//コマンドラインオプションを読み込む
+int commandline_option_input(char *argv[], int commandlineoption[],int argc){
+//	int s_org = commandlineoption[ARG_ORIGINAL];		//検索対象テキスト指定のオプション
+//	int s_find = commandlineoption[ARG_SEARCH];		//検索文字列指定のオプション
+//	int s_save = commandlineoption[ARG_SAVEFILE];		//保存先ファイルのオプション	
+//	ループ毎に1つずつコマンドラインオプションを取得する：arg_check(argv[i])
+	int chk = 0;
 	for(i = 1; i < argc; i++){		//1つ目のパラメータは実行ファイルなので弾く
-		switch (argchk(argv[i])) {
+		switch (arg_check(argv[i])) {
 		  case 'f':
-			if (s_find == ARG_NOTFOUND) {
-				s_find = i;
+			if (commandlineoption[ARG_SEARCH] == ARG_NOTFOUND) {
+				commandlineoption[ARG_SEARCH] = i;
 			} else {
 				chk = ERROR_ARG;
 			}
 			break;
 			
 		  case 'h':
-			if (s_save == ARG_NOTFOUND) {
-				s_save = i;
+			if (commandlineoption[ARG_SAVEFILE] == ARG_NOTFOUND) {
+				commandlineoption[ARG_SAVEFILE] = i;
 			} else {
 				chk = ERROR_ARG;
 			}
 			break;
 			
 		  case 'o':
-			if (s_org == ARG_NOTFOUND) {
-				s_org = i;
+			if (commandlineoption[ARG_ORIGINAL] == ARG_NOTFOUND) {
+				commandlineoption[ARG_ORIGINAL] = i;
 			} else {
 				chk = ERROR_ARG;
 			}
@@ -90,57 +131,28 @@ int main(int argc, char *argv[]){	//コマンドライン引数
 //-f -oオプションの指定漏れがないかチェック
 //s_org,s_findが全て0かつargc==3または4 → 省略と判断
 //省略に当てはまらず、0のものがある → 引数エラー
-	if ((s_org == ARG_NOTFOUND && s_find == ARG_NOTFOUND) && argc == 3) {		//(-f) string1 (-o) string2 (-h savefile)
-		s_org = 0;				//2要素目を検索先文字列とする
-		s_find = 1;				//3要素目を検索文字列とする
-		s_save = ARG_NOTFOUND;	//保存ファイル名は省略されている
-	} else if ((s_org == ARG_NOTFOUND && s_find == ARG_NOTFOUND) && argc == 4) {	//(-f) string1 (-o) string2 (-h) savefile
-		s_org = 0;				//2要素目を検索先文字列とする
-		s_find = 1;				//3要素目を検索文字列とする
-		s_save = 2;				//4要素目をファイル名とする
-	} else if((s_org == ARG_NOTFOUND && s_find == ARG_NOTFOUND)) {
+//(-f) string1 (-o) string2 (-h savefile)
+	if ((commandlineoption[ARG_ORIGINAL] == ARG_NOTFOUND && commandlineoption[ARG_SEARCH] == ARG_NOTFOUND) && argc == 3) {
+		commandlineoption[ARG_ORIGINAL] = 0;				//2要素目を検索先文字列とする
+		commandlineoption[ARG_SEARCH] = 1;				//3要素目を検索文字列とする
+		commandlineoption[ARG_SAVEFILE] = ARG_NOTFOUND;	//保存ファイル名は省略されている
+//(-f) string1 (-o) string2 (-h) savefile
+	} else if ((commandlineoption[ARG_ORIGINAL] == ARG_NOTFOUND && commandlineoption[ARG_SEARCH] == ARG_NOTFOUND) && argc == 4) {
+		commandlineoption[ARG_ORIGINAL] = 0;				//2要素目を検索先文字列とする
+		commandlineoption[ARG_SEARCH] = 1;				//3要素目を検索文字列とする
+		commandlineoption[ARG_SAVEFILE] = 2;				//4要素目をファイル名とする
+	} else if (commandlineoption[ARG_ORIGINAL] == ARG_NOTFOUND && commandlineoption[ARG_SEARCH] == ARG_NOTFOUND) {
 		chk = ERROR_ARG;
 	}
 	if (chk != ERROR_NO){
-		errmsg(chk);
-		return 0;
+		error_msg(chk);
+		return ERROR_NO;
 	}
-	
-//変数の初期化
-	char *org=argv[s_org+1];				//検索先文字列のポインタ変数
-	char *match=argv[s_find+1];				//検索文字列のポインタ変数
-	int orglength = strlen(org);
-	int matchlength = strlen(match);
-	int srchcount = 0;
-	int resultmax = orglength + ( orglength / matchlength ) * 7;////検索結果に<b>を挿入した場合の最大文字数
- 	char boldspot[orglength+2];				//発見位置保存配列のポインタ(文字の先頭と文字間と文字終端で要素数+2)
-	char result[resultmax];	
-	
-	memset(boldspot, BOLDSPOT_FORMAT , orglength + 1);
-	memset(result, '\0', resultmax - 1);
-	
-	chk = srch(org, match, &srchcount, boldspot);		//検索
-	
-//文字列を発見した場合の処理----------------
-	if(srchcount >= FOUND){
-		chk = BoldInsert(org, boldspot, result, srchcount, orglength);	//resultで<b>挿入後の文を受け取る
-		if (chk == ERROR_NO){				//問題ないなら保存
-			chk = Filesave(result,argv[s_save+1],s_save);
-		}
-		printf("%s\n", result);				//保存した結果を表示
-		
-//発見していない場合の処理------------------		
-	} else {
-		printf("文字列\"%s\"は見つかりませんでした。\n", match);
-	}
-	errmsg(chk);
-	return 0;
+	return ERROR_NO;
 }
-//main関数ここまで----------------------------------------------------------------
-//------------------------------------------------------------------------------
 
 //コマンドライン引数の判別----------------------------------------------------------
-int argchk(char* arg){
+int arg_check(char* arg){
 	if ((arg[0] == '-') && (arg[1] > 32)){	//制御文字,空白文字指定は無視
 		return arg[1];
 	}							//オプションの2文字目を返す
@@ -158,7 +170,7 @@ void allsmall(char* text){
 }
 
 //検索---------------------------------------------------------------------------
-int srch(char *org, char *match, int *srchcount, char *boldspot){
+int search(char *org, char *match, int *srchcount, char *boldspot){
 	//	方針:1文字目を探す→全一致かどうか確認する
 	int orglength = strlen(org);
 	int matchlength = strlen(match);
@@ -194,7 +206,7 @@ int srch(char *org, char *match, int *srchcount, char *boldspot){
 }
 
 //<b>挿入関数--------------------------------------------------------------------
-int BoldInsert(char *org, char *boldspot, char *result, int srchcount, int orglength) {
+int bold_insert(char *org, char *boldspot, char *result, int srchcount, int orglength) {
 	int cursor = 0;
 	int chk = ERROR_NO;
 	
@@ -233,7 +245,7 @@ int BoldInsert(char *org, char *boldspot, char *result, int srchcount, int orgle
 }
 
 //ファイルに保存-------------------------------------------------------------------
-int Filesave(char *result, char *opname, int s_save){
+int file_save(char *result, char *opname, int s_save){
 	int fchk = 1;										//fchk:ファイルエラーチェック
 	char savefile[strlen(opname)+OPNAME_DEFAULT_LONG];	//保存ファイル名
 	char *name_ex=strstr(opname, ".");					//拡張子が始まるポインタを取得
@@ -269,7 +281,7 @@ int Filesave(char *result, char *opname, int s_save){
 
 
 //エラーメッセージ-----------------------------------------------------------------
-void errmsg(int chk){
+void error_msg(int chk){
 	switch (chk){
 	  case ERROR_NO:
 		break;
